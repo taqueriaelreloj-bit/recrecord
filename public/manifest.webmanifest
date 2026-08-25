@@ -2,14 +2,15 @@
   "name": "RecRecord",
   "short_name": "RecRecord",
   "description": "Futuristic smart voice recorder",
-  "start_url": "/",
+  "start_url": "/recrecord/",
+  "scope": "/recrecord/",
   "display": "standalone",
   "background_color": "#02070B",
   "theme_color": "#02070B",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "/recrecord/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
