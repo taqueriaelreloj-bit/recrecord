@@ -1,0 +1,126 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  font-family: Inter, system-ui, sans-serif;
+  color: #eaf8ff;
+  background: #02070b;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; min-height: 100%; background: #02070b; }
+button { font: inherit; }
+button:disabled { opacity: .28; cursor: not-allowed; }
+
+.app {
+  min-height: 100vh;
+  padding: 22px 14px 36px;
+  background:
+    radial-gradient(circle at 50% -10%, rgba(0,216,255,.14), transparent 32%),
+    radial-gradient(circle at 85% 18%, rgba(68,92,255,.10), transparent 24%),
+    linear-gradient(180deg, #02070b 0%, #030b11 55%, #02070b 100%);
+  position: relative;
+  overflow-x: hidden;
+}
+
+.scanlines {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: .14;
+  background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px);
+  background-size: 100% 4px;
+  mix-blend-mode: screen;
+}
+
+.shell { width: min(100%, 430px); margin: 0 auto; position: relative; z-index: 1; }
+header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
+.brand { font: 800 28px/1 Orbitron, sans-serif; letter-spacing: .08em; text-shadow: 0 0 18px rgba(0,216,255,.28); }
+.brand span { color: #ff4338; font-size: .62em; vertical-align: .13em; margin: 0 .08em; text-shadow: 0 0 15px rgba(255,67,56,.8); }
+.subtitle { margin-top: 5px; color: #5d8296; font: 600 9px/1 IBM Plex Mono, monospace; letter-spacing: .24em; }
+.icon { width: 42px; height: 42px; border: 1px solid #12394c; border-radius: 10px; background: #06131b; color: #00d8ff; display: grid; place-items: center; box-shadow: inset 0 0 18px rgba(0,216,255,.03); }
+
+.hud {
+  position: relative;
+  border: 1px solid #12394c;
+  background: linear-gradient(180deg, rgba(8,25,35,.94), rgba(3,12,18,.96));
+  box-shadow: inset 0 0 25px rgba(0,216,255,.025), 0 16px 40px rgba(0,0,0,.25);
+  clip-path: polygon(0 10px, 10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px));
+}
+
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); min-height: 66px; margin-bottom: 12px; }
+.stats > div { display: grid; grid-template-columns: 22px 1fr; grid-template-rows: 1fr 1fr; align-items: center; padding: 10px 11px; border-right: 1px solid #12394c; }
+.stats > div:last-child { border-right: 0; }
+.stats svg { grid-row: 1 / span 2; color: #00d8ff; }
+.stats small { color: #56778a; font: 600 8px IBM Plex Mono, monospace; letter-spacing: .08em; }
+.stats b { color: #00d8ff; font: 700 11px Orbitron, sans-serif; letter-spacing: .06em; }
+
+.console { padding: 18px 14px 0; overflow: hidden; }
+.reels { display: grid; grid-template-columns: 58px 1fr 58px; gap: 10px; align-items: center; min-height: 58px; }
+.reel {
+  width: 54px; height: 54px; border-radius: 50%; border: 2px solid #1c536b;
+  background:
+    radial-gradient(circle, #00d8ff 0 4px, transparent 5px),
+    repeating-conic-gradient(from 0deg, #173d4d 0 8deg, transparent 8deg 64deg),
+    radial-gradient(circle, #0b2230 0 58%, #06131b 59% 100%);
+  box-shadow: inset 0 0 15px rgba(0,216,255,.12), 0 0 15px rgba(0,216,255,.08);
+}
+.spin { animation: spin 2.2s linear infinite; box-shadow: 0 0 19px rgba(0,216,255,.3); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.wave { height: 58px; display: flex; align-items: center; justify-content: center; gap: 2px; overflow: hidden; position: relative; }
+.wave::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(0,216,255,.13); }
+.wave i { width: 2px; min-height: 4px; background: linear-gradient(180deg, #58f3ff, #2387ff); border-radius: 3px; opacity: .68; transition: height 65ms linear; }
+.wave.active i { opacity: 1; box-shadow: 0 0 8px rgba(0,216,255,.7); }
+
+.meter {
+  --meter: 8deg;
+  width: 246px; aspect-ratio: 1; margin: 16px auto 22px; border-radius: 50%; padding: 15px;
+  background: conic-gradient(from 225deg, #00d8ff 0deg, #2387ff var(--meter), rgba(35,135,255,.10) var(--meter) 270deg, transparent 270deg);
+  filter: drop-shadow(0 0 18px rgba(0,216,255,.08));
+  position: relative;
+}
+.meter::before { content: ""; position: absolute; inset: 7px; border: 1px dashed rgba(88,243,255,.18); border-radius: 50%; }
+.meter.live { filter: drop-shadow(0 0 22px rgba(0,216,255,.22)); }
+.meterCore { width: 100%; height: 100%; border-radius: 50%; border: 1px solid #17465d; background: radial-gradient(circle, #0b2330 0%, #06141d 64%, #030b10 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: inset 0 0 38px rgba(0,216,255,.06); position: relative; }
+.meterCore::before, .meterCore::after { content: ""; position: absolute; background: rgba(0,216,255,.08); }
+.meterCore::before { width: 76%; height: 1px; }
+.meterCore::after { height: 76%; width: 1px; }
+.meterCore small { color: #5f8699; font: 600 8px IBM Plex Mono, monospace; letter-spacing: .15em; z-index: 1; }
+.meterCore strong { margin: 11px 0 8px; color: #eaf8ff; font: 700 28px Orbitron, sans-serif; letter-spacing: .08em; text-shadow: 0 0 18px rgba(0,216,255,.18); z-index: 1; }
+.meterCore em { color: #00d8ff; font: 600 9px IBM Plex Mono, monospace; letter-spacing: .14em; font-style: normal; z-index: 1; }
+
+.controls { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 18px; align-items: center; justify-items: center; }
+.round { border-radius: 50%; display: grid; place-items: center; cursor: pointer; transition: transform .15s ease, box-shadow .15s ease; }
+.round:active:not(:disabled) { transform: scale(.96); }
+.secondary { width: 62px; height: 62px; border: 1px solid #1d536b; background: radial-gradient(circle at 35% 30%, #123143, #05131c 65%); color: #00d8ff; box-shadow: inset 0 0 18px rgba(0,216,255,.06), 0 0 12px rgba(0,216,255,.05); }
+.record { width: 96px; height: 96px; border: 3px solid #5e1718; background: radial-gradient(circle at 35% 30%, #ff705f, #cf241f 55%, #7d1717 100%); color: white; box-shadow: 0 0 0 7px #07131b, 0 0 0 8px #183c4b, 0 0 28px rgba(255,67,56,.38), inset 0 0 22px rgba(255,255,255,.14); }
+.record.on { animation: pulse 1.15s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 7px #07131b, 0 0 0 8px #244d5d, 0 0 40px rgba(255,67,56,.58), inset 0 0 22px rgba(255,255,255,.14); } }
+.labels { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 18px; text-align: center; margin: 8px 0 18px; color: #5d8296; font: 600 9px IBM Plex Mono, monospace; letter-spacing: .14em; }
+.labels span:nth-child(2) { color: #ff6b54; }
+.error { margin: 0 0 14px; border: 1px solid rgba(255,67,56,.35); background: rgba(255,67,56,.07); padding: 10px; color: #ff8e81; font-size: 11px; text-align: center; }
+
+.libraryHead { display: flex; justify-content: space-between; padding: 21px 4px 9px; color: #5d8296; font: 600 9px IBM Plex Mono, monospace; letter-spacing: .14em; }
+.libraryHead b { color: #00d8ff; }
+.empty { padding: 18px 14px; color: #6e91a5; text-align: center; font-size: 12px; }
+.take { display: flex; align-items: center; gap: 10px; padding: 11px; margin-bottom: 9px; }
+.takePlay { width: 40px; height: 40px; flex: 0 0 auto; border: 1px solid #1d536b; border-radius: 50%; background: #061721; color: #00d8ff; display: grid; place-items: center; }
+.takeInfo { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.takeInfo b { font-size: 13px; }
+.takeInfo small { color: #6e91a5; font: 500 9px IBM Plex Mono, monospace; }
+.actions { display: flex; gap: 2px; }
+.actions button { width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: #6e91a5; display: grid; place-items: center; }
+.actions button:hover { background: rgba(0,216,255,.06); color: #00d8ff; }
+footer { margin-top: 19px; color: #35566a; text-align: center; font: 500 8px/1.6 IBM Plex Mono, monospace; letter-spacing: .08em; }
+
+@media (max-width: 370px) {
+  .app { padding-left: 9px; padding-right: 9px; }
+  .brand { font-size: 23px; }
+  .stats > div { padding-inline: 6px; }
+  .meter { width: 220px; }
+  .meterCore strong { font-size: 24px; }
+  .controls, .labels { gap: 8px; }
+  .record { width: 88px; height: 88px; }
+  .secondary { width: 56px; height: 56px; }
+}
