@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, Download, HardDrive, Mic, Pause, Play, Settings, Sparkles, Square, Trash2 } from "lucide-react";
 import { extensionFor, formatTime, preferredMime } from "./audioUtils.js";
+import { deleteStoredTake, loadStoredTakes, saveStoredTake } from "./recordingStore.js";
 
 const PRESETS = [
   { id: "normal", label: "Normal", rate: 1 },
@@ -47,6 +48,26 @@ export default function App() {
 
   useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
   useEffect(() => { takesRef.current = takes; }, [takes]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadStoredTakes()
+      .then((storedTakes) => {
+        if (cancelled) return;
+        const hydrated = storedTakes
+          .sort((a, b) => b.id - a.id)
+          .map((take) => ({ ...take, url: URL.createObjectURL(take.blob) }));
+        setTakes((current) => {
+          const currentIds = new Set(current.map((take) => take.id));
+          return [...current, ...hydrated.filter((take) => !currentIds.has(take.id))]
+            .sort((a, b) => b.id - a.id);
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setError("No pude abrir la biblioteca local. Las nuevas grabaciones durarán hasta que cierres esta pestaña.");
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const stopVisualizer = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -126,6 +147,9 @@ export default function App() {
             url: URL.createObjectURL(blob),
           };
           setTakes((prev) => [take, ...prev]);
+          saveStoredTake(take).catch(() => {
+            setError("La grabación funciona, pero no pude guardarla para la próxima sesión.");
+          });
         }
         stream.getTracks().forEach((track) => track.stop());
         stopVisualizer();
@@ -206,6 +230,9 @@ export default function App() {
     if (playingId === take.id) stopPlayback();
     URL.revokeObjectURL(take.url);
     setTakes((prev) => prev.filter((item) => item.id !== take.id));
+    deleteStoredTake(take.id).catch(() => {
+      setError("Eliminé la grabación de esta sesión, pero no pude actualizar la biblioteca local.");
+    });
   };
 
   useEffect(() => () => {

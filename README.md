@@ -9,6 +9,7 @@ RecRecord is a futuristic browser-based smart voice recorder built with React an
 - Pause and resume recording
 - Local playback
 - Download recordings in the browser-supported audio format
+- Persistent local library backed by IndexedDB
 - Local delete
 - Quick funny-voice playback preset
 - Futuristic mobile-first HUD interface
@@ -42,4 +43,4 @@ This runs ESLint, the unit tests, and the production build. CI uses `npm ci` wit
 
 ## Status
 
-Early development prototype. Planned next steps include persistent local library, richer voice effects, recording rename/share, waveform history, markers, PWA install support, and Android packaging.
+Early development prototype. Planned next steps include richer voice effects, recording rename/share, waveform history, markers, expanded PWA install support, and Android packaging.
