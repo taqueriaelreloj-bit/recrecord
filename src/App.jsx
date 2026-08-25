@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, Download, HardDrive, Mic, Pause, Play, Settings, Sparkles, Square, Trash2 } from "lucide-react";
+import { extensionFor, formatTime, preferredMime } from "./audioUtils.js";
 
 const PRESETS = [
   { id: "normal", label: "Normal", rate: 1 },
@@ -7,25 +8,6 @@ const PRESETS = [
   { id: "deep", label: "Grave", rate: 0.72 },
   { id: "fast", label: "Ardilla+", rate: 2.1 },
 ];
-
-function formatTime(seconds = 0) {
-  const total = Math.max(0, Math.floor(seconds));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-function preferredMime() {
-  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
-  return candidates.find((type) => window.MediaRecorder?.isTypeSupported?.(type)) || "";
-}
-
-function extensionFor(type = "") {
-  if (type.includes("mp4")) return "m4a";
-  if (type.includes("ogg")) return "ogg";
-  return "webm";
-}
 
 function Waveform({ bars, active }) {
   return (
@@ -46,6 +28,8 @@ export default function App() {
   const [takes, setTakes] = useState([]);
   const [playingId, setPlayingId] = useState(null);
   const [error, setError] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [presetId, setPresetId] = useState("normal");
 
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -59,8 +43,10 @@ export default function App() {
   const pausedTotalRef = useRef(0);
   const elapsedRef = useRef(0);
   const audioRef = useRef(null);
+  const takesRef = useRef([]);
 
   useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
+  useEffect(() => { takesRef.current = takes; }, [takes]);
 
   const stopVisualizer = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -70,7 +56,7 @@ export default function App() {
     analyserRef.current = null;
   }, []);
 
-  const tick = useCallback(() => {
+  const tick = useCallback(function animate() {
     const analyser = analyserRef.current;
     if (!analyser) return;
     const data = new Uint8Array(analyser.frequencyBinCount);
@@ -83,7 +69,7 @@ export default function App() {
     const value = Math.min(1, Math.sqrt(sum / data.length) * 4.2);
     setLevel(value);
     setBars((prev) => [...prev.slice(-41), value]);
-    rafRef.current = requestAnimationFrame(tick);
+    rafRef.current = requestAnimationFrame(animate);
   }, []);
 
   const stopPlayback = () => {
@@ -97,8 +83,13 @@ export default function App() {
   const startRecording = async () => {
     setError("");
     stopPlayback();
+    let stream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder || !(window.AudioContext || window.webkitAudioContext)) {
+        throw new Error("Recording is not supported in this browser.");
+      }
+
+      stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       streamRef.current = stream;
@@ -118,13 +109,17 @@ export default function App() {
       chunksRef.current = [];
 
       recorder.ondataavailable = (e) => e.data?.size && chunksRef.current.push(e.data);
+      recorder.onerror = () => {
+        setError("La grabación se interrumpió por un error del dispositivo de audio.");
+        stopRecording();
+      };
       recorder.onstop = () => {
         const type = recorder.mimeType || mimeType || "audio/webm";
         const blob = new Blob(chunksRef.current, { type });
         if (blob.size) {
           const take = {
             id: Date.now(),
-            name: `Take ${String(takes.length + 1).padStart(2, "0")}`,
+            name: `Take ${String(takesRef.current.length + 1).padStart(2, "0")}`,
             duration: elapsedRef.current,
             type,
             blob,
@@ -151,7 +146,12 @@ export default function App() {
       }, 150);
       tick();
     } catch (err) {
-      setError("No pude acceder al micrófono. Revisa el permiso del navegador e inténtalo otra vez.");
+      stream?.getTracks().forEach((track) => track.stop());
+      stopVisualizer();
+      const unsupported = err?.message?.includes("not supported");
+      setError(unsupported
+        ? "Este navegador no admite grabación de audio. Prueba una versión reciente de Chrome, Edge, Firefox o Safari."
+        : "No pude acceder al micrófono. Revisa el permiso del navegador e inténtalo otra vez.");
     }
   };
 
@@ -179,7 +179,7 @@ export default function App() {
     }
   };
 
-  const playTake = (take, rate = 1) => {
+  const playTake = async (take, rate = 1) => {
     if (playingId === take.id) return stopPlayback();
     stopPlayback();
     const audio = new Audio(take.url);
@@ -187,7 +187,12 @@ export default function App() {
     audio.onended = stopPlayback;
     audioRef.current = audio;
     setPlayingId(take.id);
-    audio.play();
+    try {
+      await audio.play();
+    } catch {
+      stopPlayback();
+      setError("No pude reproducir esta grabación. Inténtalo de nuevo o descárgala.");
+    }
   };
 
   const downloadTake = (take) => {
@@ -207,10 +212,12 @@ export default function App() {
     clearInterval(timerRef.current);
     stopVisualizer();
     streamRef.current?.getTracks().forEach((track) => track.stop());
-    takes.forEach((take) => URL.revokeObjectURL(take.url));
-  }, []);
+    audioRef.current?.pause();
+    takesRef.current.forEach((take) => URL.revokeObjectURL(take.url));
+  }, [stopVisualizer]);
 
   const percent = Math.round(level * 100);
+  const selectedPreset = PRESETS.find((preset) => preset.id === presetId) ?? PRESETS[0];
 
   return (
     <div className="app">
@@ -221,8 +228,29 @@ export default function App() {
             <div className="brand">REC<span>●</span>RECORD</div>
             <div className="subtitle">SMART VOICE RECORDER</div>
           </div>
-          <button className="icon"><Settings size={20} /></button>
+          <button
+            className="icon"
+            type="button"
+            aria-label="Abrir ajustes de reproducción"
+            aria-expanded={settingsOpen}
+            onClick={() => setSettingsOpen((open) => !open)}
+          ><Settings size={20} /></button>
         </header>
+
+        {settingsOpen && (
+          <section className="settings hud" aria-label="Ajustes de reproducción">
+            <span>VELOCIDAD DE REPRODUCCIÓN</span>
+            <div>{PRESETS.map((preset) => (
+              <button
+                type="button"
+                className={preset.id === presetId ? "selected" : ""}
+                aria-pressed={preset.id === presetId}
+                onClick={() => setPresetId(preset.id)}
+                key={preset.id}
+              >{preset.label}</button>
+            ))}</div>
+          </section>
+        )}
 
         <section className="stats hud">
           <div><Activity size={17} /><small>WAVEFORM</small><b>{recording && !paused ? "LIVE" : "READY"}</b></div>
@@ -242,24 +270,24 @@ export default function App() {
           </div>
 
           <div className="controls">
-            <button disabled={!recording} onClick={togglePause} className="round secondary">{paused ? <Play /> : <Pause />}</button>
-            <button onClick={recording ? stopRecording : startRecording} className={`round record ${recording ? "on" : ""}`}>{recording ? <Square fill="currentColor" /> : <Mic />}</button>
-            <button disabled={!takes.length || recording} onClick={() => takes[0] && playTake(takes[0])} className="round secondary">{takes[0] && playingId === takes[0].id ? <Square /> : <Play />}</button>
+            <button type="button" aria-label={paused ? "Reanudar grabación" : "Pausar grabación"} disabled={!recording} onClick={togglePause} className="round secondary">{paused ? <Play /> : <Pause />}</button>
+            <button type="button" aria-label={recording ? "Detener grabación" : "Iniciar grabación"} onClick={recording ? stopRecording : startRecording} className={`round record ${recording ? "on" : ""}`}>{recording ? <Square fill="currentColor" /> : <Mic />}</button>
+            <button type="button" aria-label="Reproducir grabación más reciente" disabled={!takes.length || recording} onClick={() => takes[0] && playTake(takes[0], selectedPreset.rate)} className="round secondary">{takes[0] && playingId === takes[0].id ? <Square /> : <Play />}</button>
           </div>
           <div className="labels"><span>{paused ? "RESUME" : "PAUSE"}</span><span>{recording ? "STOP" : "RECORD"}</span><span>PLAY</span></div>
-          {error && <div className="error">{error}</div>}
+          {error && <div className="error" role="alert">{error}</div>}
         </main>
 
         <section className="library">
           <div className="libraryHead"><span>RECORDED TAKES</span><b>{String(takes.length).padStart(2, "0")}</b></div>
           {!takes.length ? <div className="empty hud">No recordings yet. Press RECORD to create your first take.</div> : takes.map((take) => (
             <article className="take hud" key={take.id}>
-              <button onClick={() => playTake(take)} className="takePlay">{playingId === take.id ? <Square size={14} /> : <Play size={15} />}</button>
+              <button type="button" aria-label={`${playingId === take.id ? "Detener" : "Reproducir"} ${take.name}`} onClick={() => playTake(take, selectedPreset.rate)} className="takePlay">{playingId === take.id ? <Square size={14} /> : <Play size={15} />}</button>
               <div className="takeInfo"><b>{take.name}</b><small>{formatTime(take.duration)}</small></div>
               <div className="actions">
-                <button title="Funny voice" onClick={() => playTake(take, PRESETS[1].rate)}><Sparkles size={16} /></button>
-                <button onClick={() => downloadTake(take)}><Download size={16} /></button>
-                <button onClick={() => deleteTake(take)}><Trash2 size={16} /></button>
+                <button type="button" title="Voz divertida" aria-label={`Reproducir ${take.name} con voz divertida`} onClick={() => playTake(take, PRESETS[1].rate)}><Sparkles size={16} /></button>
+                <button type="button" title="Descargar" aria-label={`Descargar ${take.name}`} onClick={() => downloadTake(take)}><Download size={16} /></button>
+                <button type="button" title="Eliminar" aria-label={`Eliminar ${take.name}`} onClick={() => deleteTake(take)}><Trash2 size={16} /></button>
               </div>
             </article>
           ))}

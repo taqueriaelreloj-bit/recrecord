@@ -16,6 +16,8 @@ RecRecord is a futuristic browser-based smart voice recorder built with React an
 
 ## Run locally
 
+Requires Node.js 20.19 or newer (Node.js 22 LTS is recommended).
+
 ```bash
 npm install
 npm run dev
@@ -29,6 +31,14 @@ Open the local address shown by Vite. For microphone access on another phone or 
 npm run build
 npm run preview
 ```
+
+## Quality checks
+
+```bash
+npm run check
+```
+
+This runs ESLint, the unit tests, and the production build. CI uses `npm ci` with the committed lockfile so dependency installation is reproducible.
 
 ## Status
 
