@@ -4,6 +4,10 @@ RecRecord is a futuristic browser-based smart voice recorder built with React an
 
 ## Current features
 
+- Standard (128 kbps) and High Quality (up to 48 kHz/192 kbps) recording modes
+- Compatible microphone constraints for echo cancellation, noise suppression, automatic gain, and mono voice capture
+- Conservative voice processing: rumble removal, gentle noise gate, clarity EQ, compression, and peak limiting
+- Playback-only voice effects that leave the saved recording clean
 - Microphone recording with browser permission handling
 - Live microphone level and waveform visualization
 - Pause and resume recording

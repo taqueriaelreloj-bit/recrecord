@@ -42,8 +42,10 @@ header { display: flex; align-items: center; justify-content: space-between; mar
 .settings { margin: -4px 0 12px; padding: 12px; }
 .settings > span { display: block; margin-bottom: 9px; color: #6e91a5; font: 600 8px IBM Plex Mono, monospace; letter-spacing: .12em; }
 .settings > div { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.settings > .qualityOptions { grid-template-columns: repeat(2, 1fr); }
 .settings button { border: 1px solid #12394c; border-radius: 7px; padding: 7px 4px; background: #06131b; color: #6e91a5; font-size: 10px; cursor: pointer; }
 .settings button.selected { border-color: #00d8ff; color: #00d8ff; background: rgba(0,216,255,.08); }
+.settings .qualityNote { display: block; margin: 7px 0 13px; color: #52778b; font: 500 8px IBM Plex Mono, monospace; text-align: right; }
 
 .hud {
   position: relative;

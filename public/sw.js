@@ -1,6 +1,6 @@
 const BASE = "/recrecord/";
-const CACHE = "recrecord-v3";
-const CORE = [BASE, `${BASE}index.html`, `${BASE}manifest.webmanifest`, `${BASE}icon.svg`];
+const CACHE = "recrecord-v4";
+const CORE = [BASE, `${BASE}index.html`, `${BASE}manifest.webmanifest`, `${BASE}icon.svg`, `${BASE}noise-gate-processor.js`];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(CORE)));

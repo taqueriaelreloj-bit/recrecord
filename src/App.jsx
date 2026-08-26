@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, Download, HardDrive, Mic, Pause, Play, Settings, Sparkles, Square, Trash2 } from "lucide-react";
-import { extensionFor, formatTime, preferredMime } from "./audioUtils.js";
+import { extensionFor, formatTime, microphoneConstraints, recorderOptions } from "./audioUtils.js";
 import { deleteStoredTake, loadStoredTakes, saveStoredTake } from "./recordingStore.js";
 
 const PRESETS = [
@@ -11,6 +11,63 @@ const PRESETS = [
   { id: "radio", label: "Radio", effect: "radio" },
   { id: "echo", label: "Eco", effect: "echo" },
 ];
+
+async function buildRecordingChain(ctx, source) {
+  const highPass = ctx.createBiquadFilter();
+  highPass.type = "highpass";
+  highPass.frequency.value = 80;
+  highPass.Q.value = 0.7;
+
+  const mudControl = ctx.createBiquadFilter();
+  mudControl.type = "peaking";
+  mudControl.frequency.value = 280;
+  mudControl.Q.value = 0.85;
+  mudControl.gain.value = -1.8;
+
+  const presence = ctx.createBiquadFilter();
+  presence.type = "peaking";
+  presence.frequency.value = 3200;
+  presence.Q.value = 0.75;
+  presence.gain.value = 1.5;
+
+  const compressor = ctx.createDynamicsCompressor();
+  compressor.threshold.value = -20;
+  compressor.knee.value = 14;
+  compressor.ratio.value = 2.5;
+  compressor.attack.value = 0.008;
+  compressor.release.value = 0.2;
+
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -3;
+  limiter.knee.value = 1;
+  limiter.ratio.value = 16;
+  limiter.attack.value = 0.002;
+  limiter.release.value = 0.08;
+
+  const headroom = ctx.createGain();
+  headroom.gain.value = 0.92;
+  const destination = ctx.createMediaStreamDestination();
+
+  source.connect(highPass);
+  let tail = highPass;
+  if (ctx.audioWorklet && window.AudioWorkletNode) {
+    try {
+      await ctx.audioWorklet.addModule(`${import.meta.env.BASE_URL}noise-gate-processor.js`);
+      const gate = new AudioWorkletNode(ctx, "gentle-noise-gate");
+      tail.connect(gate);
+      tail = gate;
+    } catch {
+      // Browser capture noise suppression remains active when AudioWorklet is unavailable.
+    }
+  }
+  tail.connect(mudControl);
+  mudControl.connect(presence);
+  presence.connect(compressor);
+  compressor.connect(limiter);
+  limiter.connect(headroom);
+  headroom.connect(destination);
+  return { destination, analyserInput: headroom };
+}
 
 function Waveform({ bars, active }) {
   return <div className={`wave ${active ? "active" : ""}`}>{bars.map((value, index) => <i key={index} style={{ height: `${Math.max(5, value * 42)}px` }} />)}</div>;
@@ -98,7 +155,7 @@ function connectVoiceEffect(ctx, source, effect) {
     band.connect(output);
     output.connect(ctx.destination);
     carrier.start();
-    source.addEventListener("ended", () => { try { carrier.stop(); } catch {} }, { once: true });
+    source.addEventListener("ended", () => { try { carrier.stop(); } catch { /* already stopped */ } }, { once: true });
     return;
   }
 
@@ -148,10 +205,12 @@ export default function App() {
   const [error, setError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [presetId, setPresetId] = useState("normal");
+  const [audioQuality, setAudioQuality] = useState(() => localStorage.getItem("recrecord-audio-quality") === "high" ? "high" : "standard");
 
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
+  const processedStreamRef = useRef(null);
   const ctxRef = useRef(null);
   const analyserRef = useRef(null);
   const rafRef = useRef(null);
@@ -164,6 +223,11 @@ export default function App() {
   const playbackCtxRef = useRef(null);
   const playbackSourceRef = useRef(null);
   const takesRef = useRef([]);
+
+  const chooseAudioQuality = (quality) => {
+    setAudioQuality(quality);
+    localStorage.setItem("recrecord-audio-quality", quality);
+  };
 
   useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
   useEffect(() => { takesRef.current = takes; }, [takes]);
@@ -203,7 +267,7 @@ export default function App() {
   }, []);
 
   const stopPlayback = useCallback(() => {
-    try { playbackSourceRef.current?.stop(); } catch {}
+    try { playbackSourceRef.current?.stop(); } catch { /* already stopped */ }
     playbackSourceRef.current = null;
     if (playbackCtxRef.current) playbackCtxRef.current.close().catch(() => {});
     playbackCtxRef.current = null;
@@ -211,6 +275,7 @@ export default function App() {
   }, []);
 
   const playTake = async (take, effect = "normal") => {
+    if (recordingLiveRef.current) return;
     if (playingId === take.id) { stopPlayback(); return; }
     stopPlayback();
     setError("");
@@ -248,19 +313,27 @@ export default function App() {
     let stream;
     try {
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder || !(window.AudioContext || window.webkitAudioContext)) throw new Error("Recording is not supported in this browser.");
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      const supported = navigator.mediaDevices.getSupportedConstraints?.() || {};
+      stream = await navigator.mediaDevices.getUserMedia(microphoneConstraints(supported, audioQuality));
       streamRef.current = stream;
       const AudioContext = window.AudioContext || window.webkitAudioContext;
-      const ctx = new AudioContext();
+      let ctx;
+      try { ctx = new AudioContext(audioQuality === "high" ? { sampleRate: 48000 } : undefined); }
+      catch { ctx = new AudioContext(); }
       if (ctx.state === "suspended") await ctx.resume();
       const source = ctx.createMediaStreamSource(stream);
+      const { destination, analyserInput } = await buildRecordingChain(ctx, source);
+      processedStreamRef.current = destination.stream;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
-      source.connect(analyser);
+      analyserInput.connect(analyser);
       ctxRef.current = ctx;
       analyserRef.current = analyser;
-      const mimeType = preferredMime();
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const options = recorderOptions(window.MediaRecorder, audioQuality);
+      let recorder;
+      try { recorder = new MediaRecorder(destination.stream, options); }
+      catch { recorder = new MediaRecorder(destination.stream, options.mimeType ? { mimeType: options.mimeType } : undefined); }
+      const mimeType = options.mimeType || "";
       recorderRef.current = recorder;
       chunksRef.current = [];
       recorder.ondataavailable = (e) => e.data?.size && chunksRef.current.push(e.data);
@@ -274,6 +347,8 @@ export default function App() {
           saveStoredTake(take).catch(() => setError("La grabación funciona, pero no pude guardarla para la próxima sesión."));
         }
         stream.getTracks().forEach((track) => track.stop());
+        destination.stream.getTracks().forEach((track) => track.stop());
+        processedStreamRef.current = null;
         stopVisualizer();
       };
       pausedTotalRef.current = 0;
@@ -320,8 +395,8 @@ export default function App() {
     pausedAtRef.current = 0;
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== "inactive") {
-      try { recorder.requestData(); } catch {}
-      try { recorder.stop(); } catch {}
+      try { recorder.requestData(); } catch { /* not supported in every recorder state */ }
+      try { recorder.stop(); } catch { /* device already stopped the recorder */ }
     }
   };
 
@@ -360,6 +435,7 @@ export default function App() {
     stopVisualizer();
     stopPlayback();
     streamRef.current?.getTracks().forEach((track) => track.stop());
+    processedStreamRef.current?.getTracks().forEach((track) => track.stop());
     takesRef.current.forEach((take) => URL.revokeObjectURL(take.url));
   }, [stopVisualizer, stopPlayback]);
 
@@ -368,14 +444,14 @@ export default function App() {
 
   return <div className="app"><div className="scanlines" /><div className="shell">
     <header><div><div className="brand">REC<span>●</span>RECORD</div><div className="subtitle">SMART VOICE RECORDER</div></div><button className="icon" type="button" aria-label="Abrir ajustes de reproducción" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><Settings size={20} /></button></header>
-    {settingsOpen && <section className="settings hud" aria-label="Efectos de voz"><span>EFECTO DE VOZ</span><div>{PRESETS.map((preset) => <button type="button" className={preset.id === presetId ? "selected" : ""} aria-pressed={preset.id === presetId} onClick={() => setPresetId(preset.id)} key={preset.id}>{preset.label}</button>)}</div></section>}
+    {settingsOpen && <section className="settings hud" aria-label="Ajustes de audio"><span>AUDIO QUALITY</span><div className="qualityOptions"><button type="button" disabled={recording} className={audioQuality === "standard" ? "selected" : ""} aria-pressed={audioQuality === "standard"} onClick={() => chooseAudioQuality("standard")}>STANDARD</button><button type="button" disabled={recording} className={audioQuality === "high" ? "selected" : ""} aria-pressed={audioQuality === "high"} onClick={() => chooseAudioQuality("high")}>HIGH QUALITY</button></div><small className="qualityNote">{audioQuality === "high" ? "48 kHz preferred · 192 kbps" : "Device default · 128 kbps"}</small><span>EFECTO DE VOZ</span><div>{PRESETS.map((preset) => <button type="button" className={preset.id === presetId ? "selected" : ""} aria-pressed={preset.id === presetId} onClick={() => setPresetId(preset.id)} key={preset.id}>{preset.label}</button>)}</div></section>}
     <section className="stats hud"><div><Activity size={17} /><small>WAVEFORM</small><b>{recording && !paused ? "LIVE" : "READY"}</b></div><div><Mic size={17} /><small>MIC LEVEL</small><b>{percent}%</b></div><div><HardDrive size={17} /><small>STORAGE</small><b>LOCAL</b></div></section>
     <main className="console hud"><div className="reels"><div className={`reel ${recording && !paused ? "spin" : ""}`} /><Waveform bars={bars} active={recording && !paused} /><div className={`reel ${recording && !paused ? "spin" : ""}`} /></div>
       <div className={`meter ${recording ? "live" : ""}`} style={{ "--meter": `${Math.max(8, percent * 2.7)}deg` }}><div className="meterCore"><small>RECORDING TIME</small><strong>{formatTime(elapsed)}</strong><em>{paused ? "PAUSED" : recording ? `MIC ${percent}%` : "STANDBY"}</em></div></div>
       <div className="controls"><button type="button" aria-label={paused ? "Reanudar grabación" : "Pausar grabación"} disabled={!recording} onClick={togglePause} className="round secondary">{paused ? <Play /> : <Pause />}</button><button type="button" aria-label={recording ? "Detener grabación" : "Iniciar grabación"} onClick={recording ? stopRecording : startRecording} className={`round record ${recording ? "on" : ""}`}>{recording ? <Square fill="currentColor" /> : <Mic />}</button><button type="button" aria-label="Reproducir grabación más reciente" disabled={!takes.length || recording} onClick={() => takes[0] && playTake(takes[0], selectedPreset.effect)} className="round secondary">{takes[0] && playingId === takes[0].id ? <Square /> : <Play />}</button></div>
       <div className="labels"><span>{paused ? "RESUME" : "PAUSE"}</span><span>{recording ? "STOP" : "RECORD"}</span><span>PLAY</span></div>{error && <div className="error" role="alert">{error}</div>}
     </main>
-    <section className="library"><div className="libraryHead"><span>RECORDED TAKES</span><b>{String(takes.length).padStart(2, "0")}</b></div>{!takes.length ? <div className="empty hud">No recordings yet. Press RECORD to create your first take.</div> : takes.map((take) => <article className="take hud" key={take.id}><button type="button" aria-label={`${playingId === take.id ? "Detener" : "Reproducir"} ${take.name}`} onClick={() => playTake(take, selectedPreset.effect)} className="takePlay">{playingId === take.id ? <Square size={14} /> : <Play size={15} />}</button><div className="takeInfo"><b>{take.name}</b><small>{formatTime(take.duration)}</small></div><div className="actions"><button type="button" title="Efecto de voz" aria-label={`Reproducir ${take.name} con efecto de voz`} onClick={() => playTake(take, selectedPreset.effect)}><Sparkles size={16} /></button><button type="button" title="Descargar" aria-label={`Descargar ${take.name}`} onClick={() => downloadTake(take)}><Download size={16} /></button><button type="button" title="Eliminar" aria-label={`Eliminar ${take.name}`} onClick={() => deleteTake(take)}><Trash2 size={16} /></button></div></article>)}</section>
+    <section className="library"><div className="libraryHead"><span>RECORDED TAKES</span><b>{String(takes.length).padStart(2, "0")}</b></div>{!takes.length ? <div className="empty hud">No recordings yet. Press RECORD to create your first take.</div> : takes.map((take) => <article className="take hud" key={take.id}><button type="button" disabled={recording} aria-label={`${playingId === take.id ? "Detener" : "Reproducir"} ${take.name}`} onClick={() => playTake(take, selectedPreset.effect)} className="takePlay">{playingId === take.id ? <Square size={14} /> : <Play size={15} />}</button><div className="takeInfo"><b>{take.name}</b><small>{formatTime(take.duration)}</small></div><div className="actions"><button type="button" disabled={recording} title="Efecto de voz" aria-label={`Reproducir ${take.name} con efecto de voz`} onClick={() => playTake(take, selectedPreset.effect)}><Sparkles size={16} /></button><button type="button" title="Descargar" aria-label={`Descargar ${take.name}`} onClick={() => downloadTake(take)}><Download size={16} /></button><button type="button" title="Eliminar" aria-label={`Eliminar ${take.name}`} onClick={() => deleteTake(take)}><Trash2 size={16} /></button></div></article>)}</section>
     <footer>RECORDINGS STAY ON THIS DEVICE · NOTHING UPLOADS · NOTHING SYNCS</footer>
   </div></div>;
 }
