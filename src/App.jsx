@@ -27,6 +27,116 @@ function makeDistortionCurve(amount = 35) {
   return curve;
 }
 
+function connectVoiceEffect(ctx, source, effect) {
+  if (effect === "normal") {
+    source.connect(ctx.destination);
+    return;
+  }
+
+  if (effect === "chipmunk") {
+    source.detune.value = 900;
+    source.playbackRate.value = 1.02;
+    const highPass = ctx.createBiquadFilter();
+    highPass.type = "highpass";
+    highPass.frequency.value = 320;
+    const presence = ctx.createBiquadFilter();
+    presence.type = "peaking";
+    presence.frequency.value = 3200;
+    presence.Q.value = 1.2;
+    presence.gain.value = 12;
+    const highShelf = ctx.createBiquadFilter();
+    highShelf.type = "highshelf";
+    highShelf.frequency.value = 1800;
+    highShelf.gain.value = 10;
+    source.connect(highPass);
+    highPass.connect(presence);
+    presence.connect(highShelf);
+    highShelf.connect(ctx.destination);
+    return;
+  }
+
+  if (effect === "deep") {
+    source.detune.value = -850;
+    source.playbackRate.value = 0.98;
+    const bass = ctx.createBiquadFilter();
+    bass.type = "lowshelf";
+    bass.frequency.value = 320;
+    bass.gain.value = 18;
+    const mid = ctx.createBiquadFilter();
+    mid.type = "peaking";
+    mid.frequency.value = 520;
+    mid.Q.value = 0.8;
+    mid.gain.value = 8;
+    const lowPass = ctx.createBiquadFilter();
+    lowPass.type = "lowpass";
+    lowPass.frequency.value = 3000;
+    source.connect(bass);
+    bass.connect(mid);
+    mid.connect(lowPass);
+    lowPass.connect(ctx.destination);
+    return;
+  }
+
+  if (effect === "robot") {
+    const carrier = ctx.createOscillator();
+    const modGain = ctx.createGain();
+    const output = ctx.createGain();
+    const band = ctx.createBiquadFilter();
+    const shaper = ctx.createWaveShaper();
+    band.type = "bandpass";
+    band.frequency.value = 1250;
+    band.Q.value = 0.9;
+    shaper.curve = makeDistortionCurve(75);
+    shaper.oversample = "4x";
+    modGain.gain.value = 0.35;
+    output.gain.value = 0.85;
+    carrier.frequency.value = 42;
+    carrier.connect(modGain.gain);
+    source.connect(modGain);
+    modGain.connect(shaper);
+    shaper.connect(band);
+    band.connect(output);
+    output.connect(ctx.destination);
+    carrier.start();
+    source.addEventListener("ended", () => { try { carrier.stop(); } catch {} }, { once: true });
+    return;
+  }
+
+  if (effect === "radio") {
+    const high = ctx.createBiquadFilter();
+    const low = ctx.createBiquadFilter();
+    const shaper = ctx.createWaveShaper();
+    high.type = "highpass";
+    high.frequency.value = 650;
+    low.type = "lowpass";
+    low.frequency.value = 2500;
+    shaper.curve = makeDistortionCurve(30);
+    source.connect(high);
+    high.connect(low);
+    low.connect(shaper);
+    shaper.connect(ctx.destination);
+    return;
+  }
+
+  if (effect === "echo") {
+    const dry = ctx.createGain();
+    const delay = ctx.createDelay(1.5);
+    const feedback = ctx.createGain();
+    dry.gain.value = 0.8;
+    delay.delayTime.value = 0.28;
+    feedback.gain.value = 0.38;
+    source.connect(dry);
+    dry.connect(ctx.destination);
+    source.connect(delay);
+    delay.connect(feedback);
+    feedback.connect(delay);
+    delay.connect(ctx.destination);
+    return;
+  }
+
+  source.connect(ctx.destination);
+}
+
 export default function App() {
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -115,34 +225,7 @@ export default function App() {
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       playbackSourceRef.current = source;
-
-      let tail = source;
-      if (effect === "chipmunk") {
-        const high = ctx.createBiquadFilter(); high.type = "highshelf"; high.frequency.value = 1500; high.gain.value = 12;
-        const thin = ctx.createBiquadFilter(); thin.type = "highpass"; thin.frequency.value = 180;
-        tail.connect(thin); thin.connect(high); tail = high;
-      } else if (effect === "deep") {
-        const bass = ctx.createBiquadFilter(); bass.type = "lowshelf"; bass.frequency.value = 280; bass.gain.value = 14;
-        const warm = ctx.createBiquadFilter(); warm.type = "lowpass"; warm.frequency.value = 2600; warm.Q.value = 0.7;
-        tail.connect(bass); bass.connect(warm); tail = warm;
-      } else if (effect === "robot") {
-        const shaper = ctx.createWaveShaper(); shaper.curve = makeDistortionCurve(65); shaper.oversample = "4x";
-        const band = ctx.createBiquadFilter(); band.type = "bandpass"; band.frequency.value = 1100; band.Q.value = 1.4;
-        tail.connect(shaper); shaper.connect(band); tail = band;
-      } else if (effect === "radio") {
-        const high = ctx.createBiquadFilter(); high.type = "highpass"; high.frequency.value = 500;
-        const low = ctx.createBiquadFilter(); low.type = "lowpass"; low.frequency.value = 2800;
-        const shaper = ctx.createWaveShaper(); shaper.curve = makeDistortionCurve(18);
-        tail.connect(high); high.connect(low); low.connect(shaper); tail = shaper;
-      } else if (effect === "echo") {
-        const dry = ctx.createGain(); dry.gain.value = 0.85;
-        const delay = ctx.createDelay(1); delay.delayTime.value = 0.22;
-        const feedback = ctx.createGain(); feedback.gain.value = 0.32;
-        source.connect(dry); dry.connect(ctx.destination);
-        source.connect(delay); delay.connect(feedback); feedback.connect(delay); delay.connect(ctx.destination);
-        tail = null;
-      }
-      if (tail) tail.connect(ctx.destination);
+      connectVoiceEffect(ctx, source, effect);
       source.onended = () => {
         if (playbackSourceRef.current === source) {
           playbackSourceRef.current = null;
@@ -153,14 +236,15 @@ export default function App() {
       };
       setPlayingId(take.id);
       source.start();
-    } catch (err) {
+    } catch {
       stopPlayback();
       setError("No pude reproducir esta grabación en el teléfono. Prueba una grabación nueva después de actualizar la app.");
     }
   };
 
   const startRecording = async () => {
-    setError(""); stopPlayback();
+    setError("");
+    stopPlayback();
     let stream;
     try {
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder || !(window.AudioContext || window.webkitAudioContext)) throw new Error("Recording is not supported in this browser.");
@@ -170,11 +254,15 @@ export default function App() {
       const ctx = new AudioContext();
       if (ctx.state === "suspended") await ctx.resume();
       const source = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser(); analyser.fftSize = 512; source.connect(analyser);
-      ctxRef.current = ctx; analyserRef.current = analyser;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      ctxRef.current = ctx;
+      analyserRef.current = analyser;
       const mimeType = preferredMime();
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      recorderRef.current = recorder; chunksRef.current = [];
+      recorderRef.current = recorder;
+      chunksRef.current = [];
       recorder.ondataavailable = (e) => e.data?.size && chunksRef.current.push(e.data);
       recorder.onerror = () => { setError("La grabación se interrumpió por un error del dispositivo de audio."); stopRecording(); };
       recorder.onstop = () => {
@@ -188,20 +276,29 @@ export default function App() {
         stream.getTracks().forEach((track) => track.stop());
         stopVisualizer();
       };
-      pausedTotalRef.current = 0; pausedAtRef.current = 0; startedAtRef.current = performance.now(); elapsedRef.current = 0;
-      setElapsed(0); setBars(Array(42).fill(0.08));
-      recorder.start(250); recordingLiveRef.current = true; setRecording(true); setPaused(false);
+      pausedTotalRef.current = 0;
+      pausedAtRef.current = 0;
+      startedAtRef.current = performance.now();
+      elapsedRef.current = 0;
+      setElapsed(0);
+      setBars(Array(42).fill(0.08));
+      recorder.start(250);
+      recordingLiveRef.current = true;
+      setRecording(true);
+      setPaused(false);
       timerRef.current = setInterval(() => {
         if (!recordingLiveRef.current) return;
         const now = performance.now();
         const livePause = pausedAtRef.current ? now - pausedAtRef.current : 0;
         const value = Math.max(0, (now - startedAtRef.current - pausedTotalRef.current - livePause) / 1000);
-        elapsedRef.current = value; setElapsed(value);
+        elapsedRef.current = value;
+        setElapsed(value);
       }, 100);
       tick();
     } catch (err) {
       recordingLiveRef.current = false;
-      stream?.getTracks().forEach((track) => track.stop()); stopVisualizer();
+      stream?.getTracks().forEach((track) => track.stop());
+      stopVisualizer();
       const unsupported = err?.message?.includes("not supported");
       setError(unsupported ? "Este navegador no admite grabación de audio. Prueba una versión reciente de Chrome, Edge, Firefox o Safari." : "No pude acceder al micrófono. Revisa el permiso del navegador e inténtalo otra vez.");
     }
@@ -213,9 +310,14 @@ export default function App() {
     const livePause = pausedAtRef.current ? now - pausedAtRef.current : 0;
     const finalElapsed = startedAtRef.current ? Math.max(0, (now - startedAtRef.current - pausedTotalRef.current - livePause) / 1000) : elapsedRef.current;
     recordingLiveRef.current = false;
-    clearInterval(timerRef.current); timerRef.current = null;
-    elapsedRef.current = finalElapsed; setElapsed(finalElapsed);
-    setRecording(false); setPaused(false); setLevel(0); pausedAtRef.current = 0;
+    clearInterval(timerRef.current);
+    timerRef.current = null;
+    elapsedRef.current = finalElapsed;
+    setElapsed(finalElapsed);
+    setRecording(false);
+    setPaused(false);
+    setLevel(0);
+    pausedAtRef.current = 0;
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== "inactive") {
       try { recorder.requestData(); } catch {}
@@ -224,17 +326,41 @@ export default function App() {
   };
 
   const togglePause = () => {
-    const recorder = recorderRef.current; if (!recorder) return;
-    if (recorder.state === "recording") { recorder.pause(); pausedAtRef.current = performance.now(); setPaused(true); }
-    else if (recorder.state === "paused") { recorder.resume(); pausedTotalRef.current += performance.now() - pausedAtRef.current; pausedAtRef.current = 0; setPaused(false); }
+    const recorder = recorderRef.current;
+    if (!recorder) return;
+    if (recorder.state === "recording") {
+      recorder.pause();
+      pausedAtRef.current = performance.now();
+      setPaused(true);
+    } else if (recorder.state === "paused") {
+      recorder.resume();
+      pausedTotalRef.current += performance.now() - pausedAtRef.current;
+      pausedAtRef.current = 0;
+      setPaused(false);
+    }
   };
 
-  const downloadTake = (take) => { const link = document.createElement("a"); link.href = take.url; link.download = `${take.name}.${extensionFor(take.type)}`; link.click(); };
-  const deleteTake = (take) => { if (playingId === take.id) stopPlayback(); URL.revokeObjectURL(take.url); setTakes((prev) => prev.filter((item) => item.id !== take.id)); deleteStoredTake(take.id).catch(() => setError("Eliminé la grabación de esta sesión, pero no pude actualizar la biblioteca local.")); };
+  const downloadTake = (take) => {
+    const link = document.createElement("a");
+    link.href = take.url;
+    link.download = `${take.name}.${extensionFor(take.type)}`;
+    link.click();
+  };
+
+  const deleteTake = (take) => {
+    if (playingId === take.id) stopPlayback();
+    URL.revokeObjectURL(take.url);
+    setTakes((prev) => prev.filter((item) => item.id !== take.id));
+    deleteStoredTake(take.id).catch(() => setError("Eliminé la grabación de esta sesión, pero no pude actualizar la biblioteca local."));
+  };
 
   useEffect(() => () => {
-    recordingLiveRef.current = false; clearInterval(timerRef.current); stopVisualizer(); stopPlayback();
-    streamRef.current?.getTracks().forEach((track) => track.stop()); takesRef.current.forEach((take) => URL.revokeObjectURL(take.url));
+    recordingLiveRef.current = false;
+    clearInterval(timerRef.current);
+    stopVisualizer();
+    stopPlayback();
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    takesRef.current.forEach((take) => URL.revokeObjectURL(take.url));
   }, [stopVisualizer, stopPlayback]);
 
   const percent = Math.round(level * 100);
